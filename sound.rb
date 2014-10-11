@@ -16,7 +16,7 @@ puts "fqs:\t\t#{FREQUENCIES}"
 puts "sync fq:\t#{SYNC_FQ}"
 
 dev = CoreAudio.default_output_device
-byte_duration = 0.1
+byte_duration = 0.05
 sync_duration = byte_duration / 4
 SAMPLE_RATE = dev.nominal_rate
 BUFFER_SIZE = (byte_duration * SAMPLE_RATE).to_i
