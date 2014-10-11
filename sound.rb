@@ -58,10 +58,6 @@ def play_bytes(bytes)
   end
 end
 
-bytes = [ 0b00000001, 0b00000010, 0b00000100, 0b00001000, 0b00010000, 0b00100000, 0b01000000, 0b10000000 ]
-
-play_bytes(bytes)
-
 while text = $stdin.read(16) do
   play_text(text)
 end
