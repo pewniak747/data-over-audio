@@ -8,18 +8,22 @@ import time
 FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = 44100
-BYTE_DURATION = 0.075
-CHUNKS_PER_BYTE = 3
-CHUNK = int(RATE * BYTE_DURATION / CHUNKS_PER_BYTE)
+BYTE_DURATION = 0.1
+CHUNKS_PER_BYTE = 4
+CHUNK = 1024
 
 def tone(i):
-  return (2 ** (i / 12)) * 440
+  return (float(RATE) / CHUNK) * i
 
-SYNC_FQ = int(tone(38.0))
-FREQUENCIES = [int(tone(30.0 + x)) for x in range(0, 8)]
+SYNC_TONE = 140
+SYNC_FQ = tone(SYNC_TONE)
+TONES = [ 60 + 10*x for x in range(0, 8) ]
+FREQUENCIES = [tone(x) for x in TONES]
+
 NOISE_THRESHOLD = 5
 NOISE_CUTOFF = 0.3
 PEAK_BAND = 30
+
 GRAPH = False
 
 def detect_peak(fq, peaks):
@@ -41,20 +45,36 @@ if GRAPH:
   min_fq = min([ SYNC_FQ, min(FREQUENCIES) ]) - 100
   max_fq = max([ SYNC_FQ, max(FREQUENCIES) ]) + 100
   plt.ion()
-  spectrum_graph = plt.plot([])[0]
-  peaks_graph = plt.plot([], 'ro')[0]
-  phase_graph = plt.plot([], 'go')[0]
-  plt.ylim([0, 100])
-  plt.xlim([min_fq, max_fq])
+  fig = plt.figure()
+  ax1 = fig.add_subplot(311)
+  spectrum_graph = ax1.plot([])[0]
+  peaks_graph = ax1.plot([], 'ro')[0]
+  ax1.set_ylim([0, 200])
+  ax1.set_xlim([min_fq, max_fq])
   for fq in FREQUENCIES:
-    plt.axvline(fq, 0, 100, color='gray')
-  plt.axvline(SYNC_FQ, 0, 100, color='r')
-  plt.axhline(NOISE_THRESHOLD, 0, max_fq, color='gray')
+    ax1.axvline(fq, 0, 100, color='gray')
+  ax1.axvline(SYNC_FQ, 0, 100, color='r')
+  ax1.axhline(NOISE_THRESHOLD, 0, max_fq, color='gray')
+
+  ax2 = fig.add_subplot(312)
+  ax2.set_ylim([-1.1 * np.pi, 1.1 * np.pi])
+  ax2.set_xlim([0, 100])
+  sync_phase_history_graph = ax2.plot([], 'g.-')[0]
+
+  ax3 = fig.add_subplot(313)
+  ax3.set_ylim([-1.1* np.pi, 1.1 * np.pi])
+  ax3.set_xlim([0, 10])
+  phase_graph = ax3.plot([], 'g.-')[0]
+
   plt.draw()
   plt.show()
 
 window = signal.gaussian(3, 10, False)
 byte_buffer = []
+sync_phase_history = []
+
+def frequency_to_fft_idx(fq):
+  return int((float(fq) / (RATE / 2)) * (CHUNK / 2))
 
 while True:
   try:
@@ -62,16 +82,18 @@ while True:
     decoded = np.fromstring(block, 'Float32');
 
     fft = np.fft.rfft(decoded)
-    fft = signal.resample(fft, RATE/2)
     spectrum = np.abs(fft)
+    spectrum = signal.resample(spectrum, RATE/2)
     phase_spectrum = np.angle(fft)
 
     peak_threshold = max(max(spectrum) * NOISE_CUTOFF, NOISE_THRESHOLD)
     peakidx = filter(lambda idx: spectrum[idx] > peak_threshold, signal.argrelmax(spectrum)[0])
     peakval = [ spectrum[idx] for idx in peakidx ]
 
-    phaseidx = FREQUENCIES + [ SYNC_FQ ]
-    phaseval = [ phase_spectrum[fq] for fq in phaseidx ]
+    phaseidx = TONES + [ SYNC_TONE ]
+    phaseval = [ phase_spectrum[idx] for idx in phaseidx ]
+    sync_phase_history.append(phase_spectrum[SYNC_TONE])
+    sync_phase_history = sync_phase_history[-100:]
 
     sync = detect_peak(SYNC_FQ, peakidx)
     bts = map(lambda x: 1 if detect_peak(x, peakidx) else 0, FREQUENCIES)
@@ -92,6 +114,7 @@ while True:
     if GRAPH:
       spectrum_graph.set_data(range(0, len(spectrum)), spectrum)
       peaks_graph.set_data(peakidx, peakval)
+      sync_phase_history_graph.set_data(range(0, len(sync_phase_history)), sync_phase_history)
       phase_graph.set_data(phaseidx, phaseval)
       plt.draw()
   except IOError:

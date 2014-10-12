@@ -20,6 +20,10 @@ class Frame
     16
   end
 
+  def self.length
+    16
+  end
+
   private
 
   def preamble
@@ -62,26 +66,27 @@ class Player
     puts "sync fq:\t#{sync_frequency}"
     buffer = device.output_buffer(byte_buffer_size)
     wave = NArray.sint(byte_buffer_size)
-    sync_signal = Array.new(sync_size) { |i| sine(i, sync_frequency) }
 
     buffer.start
 
-    stream.each do |frame|
-      frame.bytes.each do |byte|
+    stream.each_with_index do |frame, frame_idx|
+      frame.bytes.each_with_index do |byte, byte_idx|
 
         mods = 8.times.map do |i|
           0 != (byte & 0b01 << i)
         end
 
         samples = byte_buffer_size.times.map do |i|
+          sample_no = frame_idx*Frame.length*byte_buffer_size + byte_idx*byte_buffer_size + i
           sines = carrier_frequencies.zip(mods).map do |f, m|
             if m
-              sine(i, f)
+              sine(sample_no, f)
             else
               0.0
             end
           end
-          sines << sync_signal[i] if i < sync_signal.size
+          shift = if byte_idx % 2 == 0 then 0 else Math::PI end
+          sines << sine(sample_no, sync_frequency, shift)
           sines.reduce(:+) / (carrier_frequencies.size + 1)
         end
         samples.map.with_index do |sample, i|
@@ -98,36 +103,28 @@ class Player
 
   private
 
-  def sine(sample, frequency)
-    Math.sin((2 * sample * Math::PI / sample_rate) * frequency)
+  def sine(sample, frequency, phase_shift = 0)
+    Math.sin((2 * sample * Math::PI / sample_rate) * frequency + phase_shift)
   end
 
   def byte_duration
-    0.075
+    0.1
   end
 
   def byte_buffer_size
     (byte_duration * sample_rate).to_i
   end
 
-  def sync_duration
-    byte_duration / 4
-  end
-
-  def sync_size
-    (sync_duration * sample_rate).to_i
-  end
-
   def sync_frequency
-    @sfq ||= tone(38).to_i
+    @sfq ||= tone(140)
   end
 
   def carrier_frequencies
-    @cfq ||= Array.new(8) { |i| tone(30 + i).to_i }
+    @cfq ||= Array.new(8) { |i| tone(60 + 10*i) }
   end
 
   def tone(i)
-    (2 ** (i.to_f / 12)) * 440
+    (sample_rate.to_f / 1024) * i
   end
 end
 
