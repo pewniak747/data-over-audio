@@ -41,8 +41,9 @@ if GRAPH:
   min_fq = min([ SYNC_FQ, min(FREQUENCIES) ]) - 100
   max_fq = max([ SYNC_FQ, max(FREQUENCIES) ]) + 100
   plt.ion()
-  fft_graph = plt.plot([])[0]
+  spectrum_graph = plt.plot([])[0]
   peaks_graph = plt.plot([], 'ro')[0]
+  phase_graph = plt.plot([], 'go')[0]
   plt.ylim([0, 100])
   plt.xlim([min_fq, max_fq])
   for fq in FREQUENCIES:
@@ -59,12 +60,18 @@ while True:
   try:
     block = stream.read(CHUNK)
     decoded = np.fromstring(block, 'Float32');
-    raw_fft = np.abs(np.fft.rfft(decoded))
 
-    fft = signal.resample(raw_fft, RATE/2)
-    peak_threshold = max(max(fft) * NOISE_CUTOFF, NOISE_THRESHOLD)
-    peakidx = filter(lambda idx: fft[idx] > peak_threshold, signal.argrelmax(fft)[0])
-    peakval = [ fft[idx] for idx in peakidx ]
+    fft = np.fft.rfft(decoded)
+    fft = signal.resample(fft, RATE/2)
+    spectrum = np.abs(fft)
+    phase_spectrum = np.imag(fft)
+
+    peak_threshold = max(max(spectrum) * NOISE_CUTOFF, NOISE_THRESHOLD)
+    peakidx = filter(lambda idx: spectrum[idx] > peak_threshold, signal.argrelmax(spectrum)[0])
+    peakval = [ spectrum[idx] for idx in peakidx ]
+
+    phaseidx = FREQUENCIES + [ SYNC_FQ ]
+    phaseval = [ phase_spectrum[fq] for fq in phaseidx ]
 
     sync = detect_peak(SYNC_FQ, peakidx)
     bts = map(lambda x: 1 if detect_peak(x, peakidx) else 0, FREQUENCIES)
@@ -83,8 +90,9 @@ while True:
     byte_buffer.append(byte)
 
     if GRAPH:
-      fft_graph.set_data(range(0, len(fft)), fft)
+      spectrum_graph.set_data(range(0, len(spectrum)), spectrum)
       peaks_graph.set_data(peakidx, peakval)
+      phase_graph.set_data(phaseidx, phaseval)
       plt.draw()
   except IOError:
     continue
