@@ -64,7 +64,7 @@ while True:
     fft = np.fft.rfft(decoded)
     fft = signal.resample(fft, RATE/2)
     spectrum = np.abs(fft)
-    phase_spectrum = np.imag(fft)
+    phase_spectrum = np.angle(fft)
 
     peak_threshold = max(max(spectrum) * NOISE_CUTOFF, NOISE_THRESHOLD)
     peakidx = filter(lambda idx: spectrum[idx] > peak_threshold, signal.argrelmax(spectrum)[0])
