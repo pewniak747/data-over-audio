@@ -18,7 +18,7 @@ def tone(i):
 SYNC_FQ = int(tone(38.0))
 FREQUENCIES = [int(tone(30.0 + x)) for x in range(0, 8)]
 NOISE_THRESHOLD = 5
-NOISE_CUTOFF = 0.5
+NOISE_CUTOFF = 0.3
 PEAK_BAND = 30
 GRAPH = False
 
