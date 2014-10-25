@@ -108,7 +108,7 @@ class Player
   end
 
   def byte_duration
-    0.1
+    0.2
   end
 
   def byte_buffer_size

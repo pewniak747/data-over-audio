@@ -8,9 +8,9 @@ import time
 FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = 44100
-BYTE_DURATION = 0.1
-CHUNKS_PER_BYTE = 4
+BYTE_DURATION = 0.2
 CHUNK = 1024
+CHUNKS_PER_BYTE = int((RATE*BYTE_DURATION) / CHUNK)
 
 def tone(i):
   return (float(RATE) / CHUNK) * i
@@ -21,7 +21,7 @@ TONES = [ 60 + 10*x for x in range(0, 8) ]
 FREQUENCIES = [tone(x) for x in TONES]
 
 NOISE_THRESHOLD = 5
-NOISE_CUTOFF = 0.3
+NOISE_CUTOFF = 0.1
 PEAK_BAND = 30
 
 GRAPH = False
@@ -31,6 +31,7 @@ def detect_peak(fq, peaks):
 
 print "sample rate: {0} Hz".format(RATE)
 print "chunk size: {0}".format(CHUNK)
+print "chunk / byte: {0}".format(CHUNKS_PER_BYTE)
 print "carrier fq's: {0}".format(FREQUENCIES)
 print "sync fq: {0}".format(SYNC_FQ)
 
@@ -44,6 +45,8 @@ stream = pa.open(format=FORMAT,
 if GRAPH:
   min_fq = min([ SYNC_FQ, min(FREQUENCIES) ]) - 100
   max_fq = max([ SYNC_FQ, max(FREQUENCIES) ]) + 100
+  min_tone = min([ SYNC_TONE, min(TONES) ]) - 5
+  max_tone = max([ SYNC_TONE, max(TONES) ]) + 5
   plt.ion()
   fig = plt.figure()
   ax1 = fig.add_subplot(311)
@@ -63,7 +66,7 @@ if GRAPH:
 
   ax3 = fig.add_subplot(313)
   ax3.set_ylim([-1.1* np.pi, 1.1 * np.pi])
-  ax3.set_xlim([0, 10])
+  ax3.set_xlim([min_tone, max_tone])
   phase_graph = ax3.plot([], 'g.-')[0]
 
   plt.draw()
@@ -72,6 +75,8 @@ if GRAPH:
 window = signal.gaussian(3, 10, False)
 byte_buffer = []
 sync_phase_history = []
+chunk_no = 0
+last_sync = 0
 
 def frequency_to_fft_idx(fq):
   return int((float(fq) / (RATE / 2)) * (CHUNK / 2))
@@ -90,26 +95,23 @@ while True:
     peakidx = filter(lambda idx: spectrum[idx] > peak_threshold, signal.argrelmax(spectrum)[0])
     peakval = [ spectrum[idx] for idx in peakidx ]
 
-    phaseidx = TONES + [ SYNC_TONE ]
+    phaseidx = [0] + TONES + [ SYNC_TONE ]
     phaseval = [ phase_spectrum[idx] for idx in phaseidx ]
-    sync_phase_history.append(phase_spectrum[SYNC_TONE])
+    syncval = phase_spectrum[SYNC_TONE]
+    sync_phase_history.append(syncval)
     sync_phase_history = sync_phase_history[-100:]
 
-    sync = detect_peak(SYNC_FQ, peakidx)
-    bts = map(lambda x: 1 if detect_peak(x, peakidx) else 0, FREQUENCIES)
-    byte = np.sum([ 2 ** idx if bit else 0 for idx, bit in enumerate(bts) ])
-    #char = chr(byte) if 32 <= byte <=126 else '.'
-    #print "{0}\t{1}\t{2}".format(byte, char, sync)
-    if sync:
-      if len(byte_buffer) >= CHUNKS_PER_BYTE:
-        bts = byte_buffer[-CHUNKS_PER_BYTE:]
-        byte_buffer = []
-        counts = np.bincount(bts)
-        winner = np.argmax(counts)
-        char = chr(winner) if 32 <= winner <=126 else '.'
+    if np.std(sync_phase_history[-CHUNKS_PER_BYTE:]) < np.pi / 8:
+      if last_sync + CHUNKS_PER_BYTE <= chunk_no:
+        last_sync = chunk_no
+        bits = map(lambda x: 1 if detect_peak(x, peakidx) else 0, FREQUENCIES)
+        byte = np.sum([ 2 ** idx if bit else 0 for idx, bit in enumerate(bits) ])
+        char = chr(byte) if 32 <= byte <=126 else '.'
         sys.stdout.write(char)
         sys.stdout.flush()
-    byte_buffer.append(byte)
+        byte_buffer.append(byte)
+
+    chunk_no +=1
 
     if GRAPH:
       spectrum_graph.set_data(range(0, len(spectrum)), spectrum)
