@@ -68,22 +68,40 @@ class Player
     wave = NArray.sint(byte_buffer_size)
 
     buffer.start
+    sample_no = 0
+    last_shifts = Array.new(8) { 0 }
+
+    first = byte_buffer_size.times.map do |i|
+      sample_no += 1
+      sines = carrier_frequencies.map do |f|
+        sine(sample_no, f)
+      end
+      sines << sine(sample_no, sync_frequency, Math::PI)
+      sines.reduce(:+) / (carrier_frequencies.size + 1)
+    end
+
+    first.map.with_index do |sample, i|
+      wave[i] = sample * 32767
+    end
+    buffer << wave
 
     stream.each_with_index do |frame, frame_idx|
       frame.bytes.each_with_index do |byte, byte_idx|
 
-        mods = 8.times.map do |i|
-          0 != (byte & 0b01 << i)
+        shifts = 8.times.map do |i|
+          bit = (byte >> i) & 0b01
+          if bit == 1
+            last_shifts[i] + Math::PI
+          else
+            last_shifts[i]
+          end
         end
+        last_shifts = shifts
 
         samples = byte_buffer_size.times.map do |i|
-          sample_no = frame_idx*Frame.length*byte_buffer_size + byte_idx*byte_buffer_size + i
-          sines = carrier_frequencies.zip(mods).map do |f, m|
-            if m
-              sine(sample_no, f)
-            else
-              0.0
-            end
+          sample_no += 1
+          sines = carrier_frequencies.zip(shifts).map do |f, s|
+            sine(sample_no, f, s)
           end
           shift = if byte_idx % 2 == 0 then 0 else Math::PI end
           sines << sine(sample_no, sync_frequency, shift)
@@ -108,7 +126,7 @@ class Player
   end
 
   def byte_duration
-    0.2
+    0.1
   end
 
   def byte_buffer_size

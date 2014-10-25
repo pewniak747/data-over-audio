@@ -8,7 +8,7 @@ import time
 FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = 44100
-BYTE_DURATION = 0.2
+BYTE_DURATION = 0.1
 CHUNK = 1024
 CHUNKS_PER_BYTE = int((RATE*BYTE_DURATION) / CHUNK)
 
@@ -25,9 +25,6 @@ NOISE_CUTOFF = 0.1
 PEAK_BAND = 30
 
 GRAPH = False
-
-def detect_peak(fq, peaks):
-  return any(filter(lambda peak: fq - PEAK_BAND <= peak <= fq + PEAK_BAND, peaks))
 
 print "sample rate: {0} Hz".format(RATE)
 print "chunk size: {0}".format(CHUNK)
@@ -75,6 +72,8 @@ if GRAPH:
 window = signal.gaussian(3, 10, False)
 byte_buffer = []
 sync_phase_history = []
+phase_history = []
+byte_phase_history = []
 chunk_no = 0
 last_sync = 0
 
@@ -95,21 +94,27 @@ while True:
     peakidx = filter(lambda idx: spectrum[idx] > peak_threshold, signal.argrelmax(spectrum)[0])
     peakval = [ spectrum[idx] for idx in peakidx ]
 
-    phaseidx = [0] + TONES + [ SYNC_TONE ]
+    phaseidx = TONES + [ SYNC_TONE ]
     phaseval = [ phase_spectrum[idx] for idx in phaseidx ]
     syncval = phase_spectrum[SYNC_TONE]
     sync_phase_history.append(syncval)
     sync_phase_history = sync_phase_history[-100:]
+    phase_history.append(phaseval[:-1])
 
     if np.std(sync_phase_history[-CHUNKS_PER_BYTE:]) < np.pi / 8:
       if last_sync + CHUNKS_PER_BYTE <= chunk_no:
         last_sync = chunk_no
-        bits = map(lambda x: 1 if detect_peak(x, peakidx) else 0, FREQUENCIES)
-        byte = np.sum([ 2 ** idx if bit else 0 for idx, bit in enumerate(bits) ])
-        char = chr(byte) if 32 <= byte <=126 else '.'
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        byte_buffer.append(byte)
+
+        bph = np.average(phase_history[-CHUNKS_PER_BYTE:], axis=0)
+        byte_phase_history.append(bph)
+
+        if len(byte_phase_history) > 1:
+          bits = [ 1 if abs(byte_phase_history[-1][bitno] - byte_phase_history[-2][bitno]) > 0.5*np.pi else 0 for bitno in range(0, 8) ]
+          byte = np.sum([ 2 ** idx if bit else 0 for idx, bit in enumerate(bits) ])
+          char = chr(byte) if 32 <= byte <=126 else '.'
+          sys.stdout.write(char)
+          sys.stdout.flush()
+          byte_buffer.append(byte)
 
     chunk_no +=1
 
